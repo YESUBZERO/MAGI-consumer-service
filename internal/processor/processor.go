@@ -3,6 +3,8 @@ package processor
 import (
 	"encoding/json"
 	"log"
+
+	"github.com/YESUBZERO/consumer-service/internal/kafka"
 )
 
 // Estructura de un mensaje AIS
@@ -13,7 +15,7 @@ type AISMessage struct {
 }
 
 // Procesar un mensaje mensaje Kafka
-func ProcessMessage(message []byte) error {
+func ProcessMessage(producer *kafka.KafkaProducer, message []byte) error {
 	// Decodificar el mensaje
 	var aisMessage AISMessage
 	if err := json.Unmarshal(message, &aisMessage); err != nil {
@@ -24,6 +26,15 @@ func ProcessMessage(message []byte) error {
 	if aisMessage.MsgType == 5 || aisMessage.MsgType == 24 {
 		if aisMessage.IMO != 0 {
 			log.Printf("Mensaje procesado: %+v", aisMessage)
+
+			// Serializar el mensaje procesado
+			ProcessedMessage, err := json.Marshal(aisMessage)
+			if err != nil {
+				return err
+			}
+
+			// Publicar mensaje en otro topico
+			return producer.PublishMessage(ProcessedMessage)
 		} else {
 			log.Printf("Mensaje descartado: IMO no definido")
 		}

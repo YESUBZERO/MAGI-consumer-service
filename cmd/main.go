@@ -32,8 +32,24 @@ func main() {
 		cancel()
 	}()
 
+	// Crear el topico de mensajes procesados
+	err = kafka.EnsureTopicExists(cfg.Kafka.Brokers, "processed-message", 3, 1)
+	if err != nil {
+		log.Fatalf("Error creando el topico: %v", err)
+	}
+
+	// Iniciar el productor de Kafka
+	producer, err := kafka.NewKafkaProducer(cfg.Kafka.Brokers, "processed-messages")
+	if err != nil {
+		log.Fatalf("Error iniciando el productor Kafka: %v", err)
+	}
+	defer producer.Producer.Close()
+
 	// Iniciar el consumidor de Kafka
-	err = kafka.StartKafkaConsumer(ctx, kafka.KafkaConfig(cfg.Kafka), processor.ProcessMessage)
+	err = kafka.StartKafkaConsumer(ctx, kafka.KafkaConfig(cfg.Kafka), func(message []byte) error {
+		// Procesar y publicar el mensaje
+		return processor.ProcessMessage(&kafka.KafkaProducer{Topic: "processed", Producer: nil}, message)
+	})
 	if err != nil {
 		log.Fatalf("Error iniciando consumidor de Kafka: %v", err)
 	}
