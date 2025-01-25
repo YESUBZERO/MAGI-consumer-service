@@ -36,7 +36,7 @@ func ProcessMessage(producer *kafka.KafkaProducer, message []byte) error {
 		}
 		log.Println("Mensaje descartado: IMO inválido")
 	} else {
-		log.Printf("Mensaje descartado: Tipo de mensaje inválido %d", aisMessage.MsgType)
+		log.Printf("Mensaje descartado: Tipo %d", aisMessage.MsgType)
 	}
 
 	return nil
