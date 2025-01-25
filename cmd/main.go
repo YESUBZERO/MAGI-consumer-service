@@ -13,44 +13,44 @@ import (
 )
 
 func main() {
-	// Leer configuracion del servicio
+	// Cargar configuración desde variables de entorno
 	cfg, err := config.LoadConfig()
 	if err != nil {
-		log.Fatalf("Error cargando configuracion: %v", err)
+		log.Fatalf("Error al cargar configuración: %v", err)
 	}
 
-	// Crear contexto para manejar senales de interrupcion
+	// Contexto para manejar señales del sistema (Ctrl+C, etc.)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Capturar senales del sistema (Ctrl+C, etc.)
+	// Capturar señales del sistema
 	go func() {
 		signalChan := make(chan os.Signal, 1)
 		signal.Notify(signalChan, os.Interrupt, syscall.SIGTERM)
 		<-signalChan
-		log.Println("Cerrando el servicio...")
+		log.Println("Cerrando servicio...")
 		cancel()
 	}()
 
-	// Crear el topico de mensajes procesados
-	err = kafka.EnsureTopicExists(cfg.Kafka.Brokers, "processed-message", 3, 1)
+	// Asegurar que el tópico exista
+	err = kafka.EnsureTopicExists(cfg.Kafka.Brokers, cfg.Kafka.ProcessedTopic, 3, 1)
 	if err != nil {
-		log.Fatalf("Error creando el topico: %v", err)
+		log.Fatalf("Error asegurando el tópico '%s': %v", cfg.Kafka.ProcessedTopic, err)
 	}
 
-	// Iniciar el productor de Kafka
-	producer, err := kafka.NewKafkaProducer(cfg.Kafka.Brokers, "processed-messages")
+	// Crear productor Kafka
+	producer, err := kafka.NewKafkaProducer(cfg.Kafka.Brokers, cfg.Kafka.ProcessedTopic)
 	if err != nil {
-		log.Fatalf("Error iniciando el productor Kafka: %v", err)
+		log.Fatalf("Error inicializando productor Kafka: %v", err)
 	}
-	defer producer.Producer.Close()
+	defer producer.Close()
 
-	// Iniciar el consumidor de Kafka
-	err = kafka.StartKafkaConsumer(ctx, kafka.KafkaConfig(cfg.Kafka), func(message []byte) error {
-		// Procesar y publicar el mensaje
-		return processor.ProcessMessage(&kafka.KafkaProducer{Topic: "processed", Producer: nil}, message)
+	// Iniciar el consumidor Kafka
+	err = kafka.StartKafkaConsumer(ctx, cfg.Kafka, func(message []byte) error {
+		// Procesar mensajes y publicar en el tópico
+		return processor.ProcessMessage(producer, message)
 	})
 	if err != nil {
-		log.Fatalf("Error iniciando consumidor de Kafka: %v", err)
+		log.Fatalf("Error iniciando consumidor Kafka: %v", err)
 	}
 }

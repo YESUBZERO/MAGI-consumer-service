@@ -5,48 +5,22 @@ import (
 	"log"
 
 	"github.com/IBM/sarama"
+	"github.com/YESUBZERO/consumer-service/internal/config"
 )
 
-// KafkaHandler es un manejador de mensajes de Kafka
+// KafkaHandler maneja los mensajes recibidos
 type KafkaHandler struct {
 	MessageHandler func(message []byte) error
 }
 
-// Configuracion de Kafka
-type KafkaConfig struct {
-	Brokers []string
-	Topic   string
-	GroupID string
-}
-
-// Setup es llamado al inicio de un nuevo consumidor de Kafka
-func (handler *KafkaHandler) Setup(sarama.ConsumerGroupSession) error { return nil }
-
-// Cleanup es llamado al finalizar un consumidor de Kafka
-func (handler *KafkaHandler) Cleanup(sarama.ConsumerGroupSession) error { return nil }
-
-// ConsumeClaim es llamado por el consumidor de Kafka para procesar mensajes
-func (h *KafkaHandler) ConsumeClaim(session sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
-	for message := range claim.Messages() {
-		if err := h.MessageHandler(message.Value); err != nil {
-			log.Printf("Error procesando mensaje: %v", err)
-		} else {
-			session.MarkMessage(message, "")
-		}
-	}
-	return nil
-}
-
-// Iniciar el consumidor de Kafka
-func StartKafkaConsumer(ctx context.Context, config KafkaConfig, messageHandler func(messagee []byte) error) error {
-	// Crear un grupo de consumidores
+// Iniciar el consumidor Kafka
+func StartKafkaConsumer(ctx context.Context, config config.KafkaConfig, messageHandler func(message []byte) error) error {
 	consumerGroup, err := sarama.NewConsumerGroup(config.Brokers, config.GroupID, nil)
 	if err != nil {
 		return err
 	}
 	defer consumerGroup.Close()
 
-	// Handler para procesar los mensajes
 	handler := &KafkaHandler{MessageHandler: messageHandler}
 
 	// Ciclo principal del consumidor
@@ -55,16 +29,25 @@ func StartKafkaConsumer(ctx context.Context, config KafkaConfig, messageHandler 
 			if ctx.Err() != nil {
 				return
 			}
-
-			// Consumir mensajes del Topico
-			err := consumerGroup.Consume(ctx, []string{config.Topic}, handler)
-			if err != nil {
+			if err := consumerGroup.Consume(ctx, []string{config.RawTopic}, handler); err != nil {
 				log.Printf("Error consumiendo mensajes: %v", err)
 			}
 		}
 	}()
 
-	log.Printf("Consumidor Kafka iniciado para el topico %s", config.Topic)
-	<-ctx.Done() // Esperar a que el contexto sea cancelado
+	log.Printf("Consumidor Kafka iniciado para el tópico: %s", config.RawTopic)
+	<-ctx.Done()
+	return nil
+}
+
+func (h *KafkaHandler) Setup(_ sarama.ConsumerGroupSession) error   { return nil }
+func (h *KafkaHandler) Cleanup(_ sarama.ConsumerGroupSession) error { return nil }
+func (h *KafkaHandler) ConsumeClaim(session sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
+	for message := range claim.Messages() {
+		if err := h.MessageHandler(message.Value); err != nil {
+			log.Printf("Error procesando mensaje: %v", err)
+		}
+		session.MarkMessage(message, "")
+	}
 	return nil
 }

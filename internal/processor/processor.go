@@ -7,17 +7,17 @@ import (
 	"github.com/YESUBZERO/consumer-service/internal/kafka"
 )
 
-// Estructura de un mensaje AIS
+// Estructura del mensaje AIS
 type AISMessage struct {
 	MsgType int `json:"msg_type"`
 	IMO     int `json:"imo"`
-	// Otros campos omitidos
 }
 
-// Procesar un mensaje mensaje Kafka
+// Procesar un mensaje Kafka
 func ProcessMessage(producer *kafka.KafkaProducer, message []byte) error {
-	// Decodificar el mensaje
 	var aisMessage AISMessage
+
+	// Deserializar el mensaje
 	if err := json.Unmarshal(message, &aisMessage); err != nil {
 		return err
 	}
@@ -25,21 +25,18 @@ func ProcessMessage(producer *kafka.KafkaProducer, message []byte) error {
 	// Filtrar mensajes relevantes
 	if aisMessage.MsgType == 5 || aisMessage.MsgType == 24 {
 		if aisMessage.IMO != 0 {
-			log.Printf("Mensaje procesado: %+v", aisMessage)
+			log.Printf("Procesando mensaje con IMO: %d", aisMessage.IMO)
 
-			// Serializar el mensaje procesado
-			ProcessedMessage, err := json.Marshal(aisMessage)
+			// Publicar mensaje procesado
+			processedMessage, err := json.Marshal(aisMessage)
 			if err != nil {
 				return err
 			}
-
-			// Publicar mensaje en otro topico
-			return producer.PublishMessage(ProcessedMessage)
-		} else {
-			log.Printf("Mensaje descartado: IMO no definido")
+			return producer.PublishMessage(processedMessage)
 		}
+		log.Println("Mensaje descartado: IMO inválido")
 	} else {
-		log.Printf("Mensaje descartado: Tipo de mensaje: %d", aisMessage.MsgType)
+		log.Printf("Mensaje descartado: Tipo de mensaje inválido %d", aisMessage.MsgType)
 	}
 
 	return nil
