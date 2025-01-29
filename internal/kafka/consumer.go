@@ -1,53 +1,73 @@
 package kafka
 
 import (
-	"context"
+	"encoding/json"
 	"log"
+	"sync"
 
 	"github.com/IBM/sarama"
 	"github.com/YESUBZERO/consumer-service/internal/config"
+	"github.com/YESUBZERO/consumer-service/internal/models"
+	"github.com/YESUBZERO/consumer-service/internal/repository"
 )
 
-// KafkaHandler maneja los mensajes recibidos
-type KafkaHandler struct {
-	MessageHandler func(message []byte) error
+// WorkerPool define la cantidad de workers concurrentes
+const WorkerPool = 5
+
+type Consumer struct {
+	cfg        *config.Config
+	producer   *Producer
+	repository *repository.ShipRepository
 }
 
-// Iniciar el consumidor Kafka
-func StartKafkaConsumer(ctx context.Context, config config.KafkaConfig, messageHandler func(message []byte) error) error {
-	consumerGroup, err := sarama.NewConsumerGroup(config.Brokers, config.GroupID, nil)
+func NewConsumer(cfg *config.Config, producer *Producer, repo *repository.ShipRepository) *Consumer {
+	return &Consumer{cfg: cfg, producer: producer, repository: repo}
+}
+
+func (c *Consumer) ConsumeMessages() {
+	log.Println("Iniciando consumidor de Kafka...")
+
+	consumer, err := sarama.NewConsumer(c.cfg.Kafka.Brokers, nil)
 	if err != nil {
-		return err
+		log.Fatalf("Error creando consumidor de Kafka: %v", err)
 	}
-	defer consumerGroup.Close()
 
-	handler := &KafkaHandler{MessageHandler: messageHandler}
+	topics := []string{c.cfg.Kafka.StaticTopic, c.cfg.Kafka.EnrichedTopic}
+	messageChannel := make(chan *sarama.ConsumerMessage, 100)
+	var wg sync.WaitGroup
 
-	// Ciclo principal del consumidor
-	go func() {
-		for {
-			if ctx.Err() != nil {
-				return
+	for i := 0; i < WorkerPool; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for msg := range messageChannel {
+				var aisMsg models.Ship
+				json.Unmarshal(msg.Value, &aisMsg)
+
+				if msg.Topic == c.cfg.Kafka.StaticTopic && aisMsg.IMO != 0 {
+					if !c.repository.ShipExists(aisMsg.IMO) {
+						data, _ := json.Marshal(aisMsg)
+						c.producer.SendMessage(c.cfg.Kafka.ScrapeTopic, string(data))
+					}
+				}
+
+				if msg.Topic == c.cfg.Kafka.EnrichedTopic {
+					// Guardar o actualizar los datos en la base de datos
+					if err := c.repository.SaveShip(aisMsg); err != nil {
+						log.Printf("Error guardando datos del barco: %v", err)
+					}
+				}
 			}
-			if err := consumerGroup.Consume(ctx, []string{config.RawTopic}, handler); err != nil {
-				log.Printf("Error consumiendo mensajes: %v", err)
-			}
-		}
-	}()
-
-	log.Printf("Consumidor Kafka iniciado para el tópico: %s", config.RawTopic)
-	<-ctx.Done()
-	return nil
-}
-
-func (h *KafkaHandler) Setup(_ sarama.ConsumerGroupSession) error   { return nil }
-func (h *KafkaHandler) Cleanup(_ sarama.ConsumerGroupSession) error { return nil }
-func (h *KafkaHandler) ConsumeClaim(session sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
-	for message := range claim.Messages() {
-		if err := h.MessageHandler(message.Value); err != nil {
-			log.Printf("Error procesando mensaje: %v", err)
-		}
-		session.MarkMessage(message, "")
+		}()
 	}
-	return nil
+
+	for _, topic := range topics {
+		pc, _ := consumer.ConsumePartition(topic, 0, sarama.OffsetNewest)
+		for msg := range pc.Messages() {
+			messageChannel <- msg
+		}
+	}
+
+	close(messageChannel)
+	wg.Wait()
 }

@@ -4,48 +4,35 @@ import (
 	"log"
 
 	"github.com/IBM/sarama"
+	"github.com/YESUBZERO/consumer-service/internal/config"
 )
 
-// KafkaProducer envuelve la funcionalidad de un productor Kafka
-type KafkaProducer struct {
-	Producer sarama.SyncProducer
-	Topic    string
+// Producer representa un productor de Kafka
+type Producer struct {
+	producer sarama.SyncProducer
 }
 
-// Nueva instancia de KafkaProducer
-func NewKafkaProducer(brokers []string, topic string) (*KafkaProducer, error) {
+func NewProducer(cfg *config.Config) *Producer {
 	config := sarama.NewConfig()
 	config.Producer.Return.Successes = true
-	config.Producer.RequiredAcks = sarama.WaitForAll
 
-	producer, err := sarama.NewSyncProducer(brokers, config)
+	producer, err := sarama.NewSyncProducer(cfg.Kafka.Brokers, config)
 	if err != nil {
-		return nil, err
+		log.Fatalf("Error creando productor de Kafka: %v", err)
 	}
 
-	return &KafkaProducer{
-		Producer: producer,
-		Topic:    topic,
-	}, nil
+	return &Producer{producer: producer}
 }
 
-// Publicar un mensaje en Kafka
-func (kp *KafkaProducer) PublishMessage(message []byte) error {
-	_, _, err := kp.Producer.SendMessage(&sarama.ProducerMessage{
-		Topic: kp.Topic,
-		Value: sarama.ByteEncoder(message),
-	})
-	if err != nil {
-		log.Printf("Error publicando mensaje: %v", err)
-		return err
+func (p *Producer) SendMessage(topic, message string) {
+	msg := &sarama.ProducerMessage{
+		Topic: topic,
+		Value: sarama.StringEncoder(message),
 	}
-	log.Printf("Mensaje publicado en el tópico '%s'", kp.Topic)
-	return nil
-}
 
-// Cerrar el productor Kafka
-func (kp *KafkaProducer) Close() {
-	if err := kp.Producer.Close(); err != nil {
-		log.Printf("Error cerrando el productor Kafka: %v", err)
+	_, _, err := p.producer.SendMessage(msg)
+	if err != nil {
+		log.Printf("Error enviando mensaje a Kafka: %v", err)
 	}
+	log.Printf("Mensaje enviado a %s: %s", topic, message)
 }
