@@ -43,7 +43,7 @@ func (c *Consumer) ConsumeMessages() {
 		go func(workerID int) {
 			defer wg.Done()
 			for msg := range messageChannel {
-				var aisMsg models.Ship
+				var aisMsg models.AISMessageType5
 
 				json.Unmarshal(msg.Value, &aisMsg)
 
@@ -58,8 +58,10 @@ func (c *Consumer) ConsumeMessages() {
 
 				// ✅ Procesar mensaje de enriched-message y guardar en BD
 				if msg.Topic == c.cfg.Kafka.EnrichedTopic {
-					log.Printf("📦 [Worker %d] Guardando barco con IMO %d.", workerID, aisMsg.IMO)
-					if err := c.repository.SaveShip(aisMsg); err != nil {
+					var ship models.Ship
+					json.Unmarshal(msg.Value, &ship)
+					log.Printf("📦 [Worker %d] Guardando barco con IMO %d.", workerID, ship.IMO)
+					if err := c.repository.SaveShip(ship); err != nil {
 						log.Printf("❌ [Worker %d] Error guardando en BD: %v\nDatos: %+v", workerID, err, aisMsg)
 					}
 				}

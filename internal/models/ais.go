@@ -12,7 +12,6 @@ type AISMessageType5 struct {
 
 // Ship representa la estructura almacenada en PostgreSQL
 type Ship struct {
-	MsgType        int     `json:"msg_type"`
 	IMO            int     `gorm:"primaryKey" json:"imo"`
 	MMSI           int     `gorm:"uniqueIndex" json:"mmsi"`
 	Callsign       string  `json:"callsign"`

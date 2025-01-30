@@ -31,6 +31,6 @@ func main() {
 	go consumer.ConsumeMessages()
 
 	// Mantener el servicio corriendo
-	log.Println("📡 Storage Service en ejecución...")
+	//log.Println("📡 Storage Service en ejecución...")
 	select {}
 }
