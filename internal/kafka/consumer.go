@@ -25,49 +25,66 @@ func NewConsumer(cfg *config.Config, producer *Producer, repo *repository.ShipRe
 }
 
 func (c *Consumer) ConsumeMessages() {
-	log.Println("Iniciando consumidor de Kafka...")
+	log.Println("🚀 Iniciando consumidor de Kafka...")
 
 	consumer, err := sarama.NewConsumer(c.cfg.Kafka.Brokers, nil)
 	if err != nil {
-		log.Fatalf("Error creando consumidor de Kafka: %v", err)
+		log.Fatalf("❌ Error creando consumidor de Kafka: %v", err)
 	}
+	defer consumer.Close()
 
 	topics := []string{c.cfg.Kafka.StaticTopic, c.cfg.Kafka.EnrichedTopic}
 	messageChannel := make(chan *sarama.ConsumerMessage, 100)
 	var wg sync.WaitGroup
 
+	// 🔄 Iniciar pool de workers
 	for i := 0; i < WorkerPool; i++ {
 		wg.Add(1)
-		go func() {
+		go func(workerID int) {
 			defer wg.Done()
 			for msg := range messageChannel {
 				var aisMsg models.Ship
+
 				json.Unmarshal(msg.Value, &aisMsg)
 
+				// ✅ Procesar mensaje de static-message
 				if msg.Topic == c.cfg.Kafka.StaticTopic && aisMsg.IMO != 0 {
 					if !c.repository.ShipExists(aisMsg.IMO) {
+						//log.Printf("📡 [Worker %d] Enviando barco con IMO %d a Scraper...", workerID, aisMsg.IMO)
 						data, _ := json.Marshal(aisMsg)
 						c.producer.SendMessage(c.cfg.Kafka.ScrapeTopic, string(data))
 					}
 				}
 
+				// ✅ Procesar mensaje de enriched-message y guardar en BD
 				if msg.Topic == c.cfg.Kafka.EnrichedTopic {
-					// Guardar o actualizar los datos en la base de datos
+					log.Printf("📦 [Worker %d] Guardando barco con IMO %d.", workerID, aisMsg.IMO)
 					if err := c.repository.SaveShip(aisMsg); err != nil {
-						log.Printf("Error guardando datos del barco: %v", err)
+						log.Printf("❌ [Worker %d] Error guardando en BD: %v\nDatos: %+v", workerID, err, aisMsg)
 					}
 				}
 			}
-		}()
+		}(i)
 	}
 
+	// Consumir mensajes de Kafka y enviarlos a messageChannel
 	for _, topic := range topics {
-		pc, _ := consumer.ConsumePartition(topic, 0, sarama.OffsetNewest)
-		for msg := range pc.Messages() {
-			messageChannel <- msg
+		log.Printf("🔗 Suscribiéndose al tópico: %s", topic)
+
+		partitionConsumer, err := consumer.ConsumePartition(topic, 0, sarama.OffsetNewest)
+		if err != nil {
+			log.Fatalf("❌ Error consumiendo el tópico %s: %v", topic, err)
 		}
+
+		go func(topic string, pc sarama.PartitionConsumer) {
+			for msg := range pc.Messages() {
+				//log.Printf("📨 Mensaje recibido en %s: %s", topic, string(msg.Value))
+				messageChannel <- msg
+			}
+		}(topic, partitionConsumer)
 	}
 
-	close(messageChannel)
+	// NO cierres messageChannel aquí, deja que los workers lo manejen
 	wg.Wait()
+
 }

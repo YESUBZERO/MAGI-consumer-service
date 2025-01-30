@@ -34,5 +34,5 @@ func (p *Producer) SendMessage(topic, message string) {
 	if err != nil {
 		log.Printf("Error enviando mensaje a Kafka: %v", err)
 	}
-	log.Printf("Mensaje enviado a %s: %s", topic, message)
+	//log.Printf("Mensaje enviado a %s: %s", topic, message)
 }
